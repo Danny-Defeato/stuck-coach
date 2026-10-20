@@ -1,0 +1,8 @@
+# personal data the scripts write
+.stuck-level
+.stuck-fails.json
+LEARNED.md
+stuck-log.json
+out/
+*.class
+node_modules/
