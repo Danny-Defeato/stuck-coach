@@ -15,7 +15,7 @@ What I set out to build, what I asked the agent for, what I decided, and what I 
 - Built in phases with Claude Code, one feature per phase, testing and committing after each (see `BUILD-PLAN.md`).
 - Test the code checks with fake model replies before using the real model.
 
-**Planned phases:** core /stuck, policy modes, auto-offer hook, /fixed, duck mode. Stats dashboard only if time allows.
+**Planned phases:** core /stuck, policy modes, auto-offer hook, /fixed, duck mode. Stats dashboard only if time allows (not built: there is no stats script, so `stuck-log.json` in CLAUDE.md is not written by anything yet).
 
 **Dropped for now:** a web dashboard, support for languages other than Java, anything that edits my files.
 
@@ -45,7 +45,7 @@ What I set out to build, what I asked the agent for, what I decided, and what I 
 
 **Tested with fake replies:** 12 fenced code lines rejected twice; unfenced code lines rejected; levels 1, 2, 3 then "last level"; MissingReturn restarts at level 1; Clean resets; NullPointer runtime error caught; typo command; 60 second build timeout; paths outside the repo ignored.
 
-**What the model got wrong:** not tested with the real model yet. Fill this in after the first real run.
+**What the model got wrong:** the fake-reply tests could not show it; see "What the model got wrong (real model, all phases)" at the bottom of this file.
 
 ## 2026-10-25: Phase 2, policy modes
 
@@ -60,7 +60,7 @@ What I set out to build, what I asked the agent for, what I decided, and what I 
 - The policy file is a nudge, not security: I can edit it myself.
 - `**` is stripped only outside code fences, so code is never changed.
 
-**What the model got wrong:** nothing from the real model yet (all tests used fake replies). One thing the code cannot check: in locked mode it can reject code, but not "try this" advice in plain words. That depends on the prompt alone. My own agent mistake: while editing `.gitignore` I added the policy line twice and had to remove one.
+**What the model got wrong:** the fake-reply tests could not show it; see "What the model got wrong (real model, all phases)" at the bottom of this file. One thing the code cannot check: in locked mode it can reject code, but not "try this" advice in plain words. That depends on the prompt alone. My own agent mistake: while editing `.gitignore` I added the policy line twice and had to remove one.
 
 ## 2026-10-25: Phase 3, auto-offer hook
 
@@ -84,7 +84,7 @@ What I set out to build, what I asked the agent for, what I decided, and what I 
 
 **Tested without Claude Code** (JSON piped into the script, temp project folder): offer on the 3rd failure only, then silent on the 4th and 5th; a different error restarts at 1; a pass resets and a new run of 3 offers again; other commands (`node tools/stuck.js`, `ls`) leave the file untouched; empty stdin, bad JSON, `[]`, `null`, unknown tool or event, `Exit code 0`, interrupt, non-string error, bad or missing config, unwritable and broken fails file all exit 0 with no output; each run about 70-100 ms; the saved key matches `makeErrorKey`. Phase 1 fake tests after moving `makeErrorKey`: 12 code lines rejected twice, levels 1/2/3 then the last-level message, MissingReturn restarts at 1, Clean resets, NullPointer runtime error caught, typo command, level 3 allows 3 code lines.
 
-**Not tested yet:** a real Claude Code session. Still to check by hand: `/hooks` lists both entries, the offer line really shows on the 3rd failure, and the relative path works.
+**Not tested yet:** a real Claude Code session. Still to check by hand: `/hooks` lists both entries, the offer line really shows on the 3rd failure, and the relative path works. (Update: the offer and the relay were verified live, see the docs-pass entry at the bottom. `/hooks` and the relative path from another folder are still untested.)
 
 **What the model got wrong:** nothing from the real model, it is not involved in the hook. My own agent mistakes: (1) one placeholder test in my first Phase 1 run did nothing, so I re-ran it properly. (2) You said a `]` was missing in the settings diff; I compared the plan's diff and found the brackets balanced, so I wrote the file with the same structure and checked it with `JSON.parse` (it printed `valid`).
 
@@ -103,7 +103,7 @@ What I set out to build, what I asked the agent for, what I decided, and what I 
 
 **Tested with fake replies:** "I fixed it" and other lazy lines refused with nothing saved; good sentence saved with only my words; `matches: false` twice (feedback, one more try, nothing saved); invalid JSON, string `matches`, code in feedback, two-line feedback and over-long feedback all rejected; retry text checked with a scripted harness (it contains the exact problem); false then true saves only the second sentence; bad JSON then true; diff cap (150 added lines cut, `(diff cut)` added); empty diff; not a git repo; no saved error; stdin closed; a passing build keeps `.stuck-last-error.json`; `/stuck` still passes its Phase 1 checks (good fake, 12-line code block rejected twice).
 
-**What the model got wrong:** not tested with the real model yet. Fill this in after the first real run. My own agent mistake: my plan's budget wording did not add up (see above) and I caught it while writing the tests.
+**What the model got wrong:** the fake-reply tests could not show it; see "What the model got wrong (real model, all phases)" at the bottom of this file. My own agent mistake: my plan's budget wording did not add up (see above) and I caught it while writing the tests.
 
 ## 2026-10-25: Phase 5, duck mode
 
@@ -115,13 +115,13 @@ What I set out to build, what I asked the agent for, what I decided, and what I 
 - **A separate switch on /stuck, not a policy mode.** A policy mode is a cap on hint levels (what my course allows). Duck mode gives no answers, so it fits under every mode, including locked, and never touches `.stuck-policy.json` or the hint level.
 - **One question per run.** CLAUDE.md allows at most 2 `claude -p` calls per command and says never loop, so a run asks one question and stops; my answer goes in the next run. That is why the conversation is in a temp file (`stuck-duck-<hash>.json` in the OS temp folder, outside the repo).
 - The 2-call budget is per run: first try plus one retry. My answer is saved before the model call, so a model failure does not lose it.
-- **Answer input:** terminal `node tools/stuck.js --duck "my answer"`, and for the slash command the answer is piped to the script through a quoted heredoc (`--duck --stdin`) so the shell never interprets it. I tested the script side with quotes, `$(...)`, backticks, `;`, `|`, `>` and a multi-line answer: everything arrived verbatim and nothing ran. **The cut rule was not triggered**, so `--stdin` stays. What I could not test is the slash command layer itself (Claude Code building that heredoc and the permission prompt), because it would use a real Claude Code turn and the real model. If it misbehaves, the fallback is already in place: delete `--stdin` from the script and `stuck.md`, and answer only in the terminal; `/stuck --duck` with no answer keeps working in the slash command.
+- **Answer input:** terminal `node tools/stuck.js --duck "my answer"`, and for the slash command the answer is piped to the script through a quoted heredoc (`--duck --stdin`) so the shell never interprets it. I tested the script side with quotes, `$(...)`, backticks, `;`, `|`, `>` and a multi-line answer: everything arrived verbatim and nothing ran. **The cut rule was not triggered**, so `--stdin` stays. What I could not test is the slash command layer itself (Claude Code building that heredoc and the permission prompt), because it would use a real Claude Code turn and the real model. (Update: later verified in a live Claude Code session, apostrophes included; see the TUTORIAL.md entry at the bottom.) If it misbehaves, the fallback is already in place: delete `--stdin` from the script and `stuck.md`, and answer only in the terminal; `/stuck --duck` with no answer keeps working in the slash command.
 - Any argument other than `--duck` is refused, so a typo like `--Duck` cannot silently use up a hint level.
 - Answers are one line, capped at 300 characters, and say so when cut.
 
 **Tested with fake replies:** first question printed with footer; unanswered question re-shown with no model call; answer builds the next question (prompt contains my answer); reply rejected, retried once with the exact problem, then a clear message, with nothing printed and exactly 2 calls: statement, statement plus question, 4 questions, code fence, indented code, over 300 characters, leading questions, empty reply; a bad reply then a good one passes on the retry; model failure keeps my answer; 6 questions then "try plain /stuck" with no call; an answer with no question waiting is refused; graded, locked and a broken policy file all work; a new error starts over; a passing build deletes the temp file; `.stuck-level` is not changed by duck mode; the PowerShell terminal path; Phase 1-2 regressions (good fake, 12 code lines rejected twice, locked footer, graded cap).
 
-**What the model got wrong:** the checks were only run against fake replies on purpose. Two things came out of testing my own code, not the model: (1) my first leading-question blocklist missed "Shouldn't findIndex return a String?" because it only matched "shouldn't it/you/this"; I widened it and re-tested. (2) The code **cannot** prove a question doesn't hint at the fix. It proves "only questions, no code, no statements" and blocks common leading patterns; a cleverly worded leading question can still get through, and then that is the model.
+**What the model got wrong:** the checks were only run against fake replies on purpose; for the real model, see "What the model got wrong (real model, all phases)" at the bottom of this file. Two things came out of testing my own code, not the model: (1) my first leading-question blocklist missed "Shouldn't findIndex return a String?" because it only matched "shouldn't it/you/this"; I widened it and re-tested. (2) The code **cannot** prove a question doesn't hint at the fix. It proves "only questions, no code, no statements" and blocks common leading patterns; a cleverly worded leading question can still get through, and then that is the model.
 
 **My own agent mistake:** the first run of the rejection tests silently used the real model. My test harness failed to patch the copy of the script (a shell variable was not exported) and the script kept going, so 9 real `claude -p` calls were made instead of fakes. I fixed the harness, made it refuse to run without scripted replies, and re-ran everything. Side result: all 9 real replies were valid questions and were printed (I did not count retries), so there is no evidence yet of the real model breaking the rules. A proper real-model session of 6 questions is still to do.
 
@@ -147,6 +147,55 @@ What I set out to build, what I asked the agent for, what I decided, and what I 
 
 **Tested:** a new scratch harness (the old one was gone), 27 of 27 passed: offer on the 3rd failure only, silent on the 4th and 5th; stdout is exactly one JSON line with only `systemMessage` and `hookSpecificOutput`; `systemMessage` starts with `\n` and the box is 4 lines of ASCII; `hookEventName` and `additionalContext` match the text exactly; a pass resets and 3 more failures offer again; a different error restarts the count; fail-open cases (empty and bad stdin, `null`, other tool, other command, no exit-code line, exit 0, interrupt, missing and broken config, unwritable fails file) exit 0 with no output.
 
-**Not tested:** how this looks in a live Claude Code session, and whether the model really says the sentence. The docs have no example that combines `systemMessage` and `hookSpecificOutput` in one object. And since the model only relays, it may word it a little differently or skip it; that would be the model, not my code.
+**Not tested (at the time; verified live later, see the docs-pass entry at the bottom):** how this looks in a live Claude Code session, and whether the model really says the sentence. The docs have no example that combines `systemMessage` and `hookSpecificOutput` in one object. And since the model only relays, it may word it a little differently or skip it; that would be the model, not my code.
 
 **What the model got wrong:** nothing found yet (not run with the real model).
+
+## 2026-10-25: Final docs pass
+
+**Asked for:** documentation only, no code changes, no commit. A new README (what it is, model vs code table, commands, demo, tested vs not tested, honest limits, not built) and a LOG check: every phase 1-5 has asked for / changed / decided / what the model got wrong, no leftover "Dropped for time" text, and one list of what the model got wrong. I asked to see the full diff of both files before saving and to write only what is in LOG.md, the code, or what I listed.
+
+**Changed:** `README.md` rewritten in the new order. `LOG.md`: the plan line says the stats dashboard was not built, the "Fill this in" lines in Phases 1, 2, 4 and 5 now point to the list below, and the list was added. No file in `tools/` or `.claude/` was touched.
+
+**Decided**
+- The README demo uses a real run of `examples/TypeMismatch.java`, not fake replies. That cost 3 real `claude -p` calls (level 1, level 2, locked). The graded "No more hints" cap makes no model call.
+- I read "a locked-mode rejection" as a locked-mode run: locked mode gives no hint and prints the explanation only. Locked mode has no case where the script rejects a run before the model call.
+- The demo changed `.stuck-policy.json` and `.stuck-level`. I saved both (and `.stuck-last-error.json` and `.stuck-fails.json`) first and put them back after: mode practice, level 2 for the same error.
+- The `LEARNED.md` entry in the README is copied from my real file.
+- **Hook verified live.** At 9:36 PM, in a live Claude Code session, the `====` box was shown, Claude repeated the sentence, and it worked through both the Bash and PowerShell tools. The model only relays a line the code wrote, so it may reword or skip the sentence; that would be the model, not the code. The README says so.
+- The README "Tested" section now lists the fake-reply rejection tests separately from the other fake-reply tests, the real-model runs and the live hook session.
+- I searched both files for personal paths and my user name. None were in the repo versions, and the temp paths I used while drafting were never written into them.
+- "Dropped for time" is not in this file. The only matching text was the plan's "Stats dashboard only if time allows", which stayed true (not built).
+
+**Not tested:** `/hooks` listing both entries, the hook when Claude's shell is outside the repo folder, a full 6-question duck session, other languages. Listed in the README. (The slash-command layer of `/stuck --duck <answer>` was listed here at the time; it was verified live afterward, see the TUTORIAL.md entry at the bottom.)
+
+**What the model got wrong:** see the list below. My own agent mistake: none new in this pass.
+
+## What the model got wrong (real model, all phases)
+
+These are real observations from running the real model, not from fake replies.
+
+- **Level 3 chose the smallest compile fix, not the clearest one.** The check only counts code lines, so it passed.
+- **The level 1 nudge for the NullPointer example leaned toward revealing the cause.** Level 1 is meant to restate the error only. The code cannot tell how much a plain-words sentence gives away.
+- **The model put markdown `**` markers in its text.** The code now strips them outside code fences (Phase 2).
+- **At level 2 the model added its own heading, "A way to think about it", that was not in the requested format.** The code does not check headings.
+- **Duck question 1 packed two questions into one sentence.** The code allows it: it checks that every sentence ends in `?` and that there are at most 3 questions, not that each sentence holds only one.
+- **My own agent (Claude Code) ran 9 real model calls by mistake** when a test harness failed to patch the script copy. The harness now refuses to run without scripted replies (Phase 5).
+
+## 2026-10-25: TUTORIAL.md
+
+**Asked for:** a `TUTORIAL.md` for a student who has never seen the project (plain words, short steps, copy-paste commands, Windows/PowerShell first), with sections from "Before you start" to "What it can't do", and a link from the README near the top. Documentation only, no code changes, no commit. Only describe what works in this repo; run it or mark it untested. I asked to see the diff before saving.
+
+**Changed:** new `TUTORIAL.md`; one link line near the top of `README.md`. No file in `tools/` or `.claude/` was touched.
+
+**Decided**
+- **Duck answers verified live.** The Claude Code layer of `/stuck --duck <answer>` (the heredoc and the permission prompt) was verified in a live session, apostrophes included. The tutorial and README say verified, not untested. I did not run this myself; it is your report.
+- The only step still not run is the login check (`claude -p "say hi"`), a normal one-call check.
+- The clone step uses the GitHub address you gave: `https://github.com/Danny-Defeato/stuck-coach`.
+- Checked with fake replies in a scratch folder (not this repo): a mistyped command name prints the "could not start ... typo" message; PowerShell duck answers work in double quotes, with a doubled apostrophe in single quotes, and with a backtick-escaped dollar sign; an apostrophe inside single quotes gives `The string is missing the terminator`; `/fixed` refuses `I fixed it`, accepts a real sentence and writes only that sentence to `LEARNED.md`; a passing build prints `Build passed`.
+- Found while checking: a mistyped file **path** (not the command name) does not give the "could not start" message. `javac` runs, says it can't find the file, and `/stuck` explains that as a normal error and uses a hint level. The tutorial says so. I did not change the code.
+
+**What the model got wrong:** nothing new in the tutorial text. In that same check the model explained the "file not found" error at level 1 as a real hint.
+
+**My own agent mistake:** my first scratch test ran `/stuck` before I had set `STUCK_FAKE_REPLY`, so it made 1 real model call (the mistyped-path run). I set the fake reply for everything after it.
+
