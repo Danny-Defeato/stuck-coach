@@ -61,3 +61,20 @@ What I set out to build, what I asked the agent for, what I decided, and what I 
 - `**` is stripped only outside code fences, so code is never changed.
 
 **What the model got wrong:** nothing from the real model yet (all tests used fake replies). One thing the code cannot check: in locked mode it can reject code, but not "try this" advice in plain words. That depends on the prompt alone. My own agent mistake: while editing `.gitignore` I added the policy line twice and had to remove one.
+
+## 2026-10-25: Phase 4, /fixed
+
+**Asked for:** BUILD-PLAN Phase 4 (`node tools/fixed.js`: my own sentence, code checks it, the model only says whether it matches, only MY sentence goes to `LEARNED.md`). I asked for the plan first and no files until I approved it, and for the model's part to be as small as possible. After the plan I decided: save the last error in `.stuck-last-error.json` (a passing build keeps it), send only a capped source-only diff (80 lines / 4000 characters) and update the Safety line, a stoplist for the word check counting only the error message and the changed `+`/`-` lines, one shared budget of 2 model calls, terminal only, and `git diff HEAD` so staged changes count.
+
+**Changed:** new `tools/fixed.js`; `tools/stuck.js` now also writes `.stuck-last-error.json` after a failed build (one function, one call); `.gitignore`, `CLAUDE.md` (files list, Safety line, Running it) and `README.md` updated.
+
+**Decided**
+- Terminal only, no `.claude/commands/fixed.md`: the slash command's shell has no keyboard input, and passing my sentence as a shell argument risks quoting and injection problems on Windows.
+- The model's part is only `matches` plus one sentence of feedback. The word check, the length and shape checks on the JSON, the diff cap and the file writes are all code.
+- The 2-call budget is strict. If the first sentence used a retry (2 calls) and the answer was "no", the second sentence is not checked and the script says to run it again. (My plan said "no retry for the second sentence", which would not have fitted in 2 calls.)
+- Lazy sentences are refused by code and cost no model call; 3 refusals stop the run.
+- `git diff HEAD` leaves out brand-new untracked files (written in the README).
+
+**Tested with fake replies:** "I fixed it" and other lazy lines refused with nothing saved; good sentence saved with only my words; `matches: false` twice (feedback, one more try, nothing saved); invalid JSON, string `matches`, code in feedback, two-line feedback and over-long feedback all rejected; retry text checked with a scripted harness (it contains the exact problem); false then true saves only the second sentence; bad JSON then true; diff cap (150 added lines cut, `(diff cut)` added); empty diff; not a git repo; no saved error; stdin closed; a passing build keeps `.stuck-last-error.json`; `/stuck` still passes its Phase 1 checks (good fake, 12-line code block rejected twice).
+
+**What the model got wrong:** not tested with the real model yet. Fill this in after the first real run. My own agent mistake: my plan's budget wording did not add up (see above) and I caught it while writing the tests.

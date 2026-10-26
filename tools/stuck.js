@@ -10,6 +10,7 @@ const { MODES, readPolicy } = require('./policy');
 const ROOT = process.cwd();
 const CONFIG_FILE = path.join(ROOT, '.stuck-config.json');
 const LEVEL_FILE = path.join(ROOT, '.stuck-level');
+const LAST_ERROR_FILE = path.join(ROOT, '.stuck-last-error.json');
 const MAX_LEVEL = 3;
 const TIMEOUT_MS = 60000;
 const CONTEXT_BEFORE = 5;
@@ -85,6 +86,15 @@ function readLevel() {
 
 function saveLevel(errorKey, level) {
   fs.writeFileSync(LEVEL_FILE, JSON.stringify({ errorKey, level }) + '\n');
+}
+
+// /fixed reads this later. A passing build must not delete it: the error I just fixed is what /fixed needs.
+function saveLastError(errorKey, output) {
+  const clipped = output.split(/\r?\n/).slice(0, MAX_ERROR_LINES).join('\n').slice(0, MAX_ERROR_CHARS);
+  const now = new Date();
+  const two = (n) => String(n).padStart(2, '0');
+  const date = `${now.getFullYear()}-${two(now.getMonth() + 1)}-${two(now.getDate())}`;
+  fs.writeFileSync(LAST_ERROR_FILE, JSON.stringify({ errorKey, output: clipped, date }) + '\n');
 }
 
 // First error line with the file path and line number removed, so the same
@@ -294,6 +304,7 @@ async function main() {
   }
 
   const errorKey = makeErrorKey(output);
+  saveLastError(errorKey, output);
   const previous = readLevel();
   const sameError = previous.errorKey === errorKey;
   // The policy cap is checked here, before any model call. Locked has cap 0: no

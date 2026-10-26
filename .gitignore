@@ -2,6 +2,7 @@
 .stuck-level
 .stuck-policy.json
 .stuck-fails.json
+.stuck-last-error.json
 LEARNED.md
 stuck-log.json
 out/
