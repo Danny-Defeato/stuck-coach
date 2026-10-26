@@ -4,6 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
+const { MODES, readPolicy } = require('./policy');
 
 // Files are found from the folder /stuck is run in, not from where this script lives.
 const ROOT = process.cwd();
@@ -165,6 +166,7 @@ function sourceAround({ file, line }) {
 }
 
 const LEVEL_RULES = {
+  0: 'Locked mode (explanation only). Explain what the error means in plain words. Do NOT give a hint, advice, what to try, where to look, or the fix. No code.',
   1: 'Level 1 (a nudge). Explain only what the error message literally says, in plain words. Do NOT say what is wrong with the code or why it happens. Then give one nudge about where to look. No code.',
   2: 'Level 2 (the cause). Explain what the error means and why it happens in this code, in plain words. Do NOT show the fix. No code.',
   3: 'Level 3 (the fix). Explain the error, then give the specific fix. At most 3 lines of code.',
@@ -175,7 +177,9 @@ function buildPrompt(errorText, source, level) {
   return [
     'You are a hint coach for a student whose Java code will not build or run.',
     'You have no tools and cannot see any other files, so use only the text below.',
-    'Write a short plain-words explanation of the real error, then a hint at the level below.',
+    level === 0
+      ? 'Write a short plain-words explanation of the real error. Follow the rule below.'
+      : 'Write a short plain-words explanation of the real error, then a hint at the level below.',
     LEVEL_RULES[level],
     'Put any code inside ``` fences. Never put code outside fences.',
     '',
@@ -215,12 +219,26 @@ function countCodeLines(text) {
   return count;
 }
 
+// The terminal shows ** literally, so drop the bold markers before printing.
+// Lines inside code fences are left alone so code is never changed.
+function stripBold(text) {
+  let inFence = false;
+  return text.split('\n').map((line) => {
+    if (line.trim().startsWith('```')) {
+      inFence = !inFence;
+      return line;
+    }
+    return inFence ? line : line.replace(/\*\*/g, '');
+  }).join('\n');
+}
+
 function checkReply(text, level) {
   if (!text.trim()) return { ok: false, problem: 'the reply was empty.' };
   const codeLines = countCodeLines(text);
   const allowed = level === MAX_LEVEL ? 3 : 0;
   if (codeLines > allowed) {
-    const rule = allowed === 0 ? `Level ${level} must have no code at all` : `Level ${level} may have at most ${allowed} lines of code`;
+    const name = level === 0 ? 'Locked mode' : `Level ${level}`;
+    const rule = allowed === 0 ? `${name} must have no code at all` : `${name} may have at most ${allowed} lines of code`;
     return { ok: false, problem: `the reply had ${codeLines} lines of code. ${rule}.`, codeLines };
   }
   return { ok: true, codeLines };
@@ -245,6 +263,10 @@ async function askModel(prompt, level) {
 async function main() {
   const config = loadConfig();
   if (!config) return 1;
+
+  const policy = readPolicy();
+  const cap = MODES[policy.mode].cap;
+  if (policy.warning) say(policy.warning);
 
   const build = await run(config.command, [], { shell: true });
   if (build.timedOut) {
@@ -274,11 +296,13 @@ async function main() {
   const errorKey = makeErrorKey(output);
   const previous = readLevel();
   const sameError = previous.errorKey === errorKey;
-  if (sameError && previous.level >= MAX_LEVEL) {
-    say(`That was the last level (${MAX_LEVEL}). No more hints for this error. Change the code or ask your instructor.`);
+  // The policy cap is checked here, before any model call. Locked has cap 0: no
+  // hint levels at all, so it skips this check and only asks for the explanation (level 0).
+  if (cap > 0 && sameError && previous.level >= cap) {
+    say(`Mode is ${policy.mode}: hints stop at level ${cap}, and you have used them for this error. No more hints. Change the code or ask your instructor.`);
     return 0;
   }
-  const level = sameError ? previous.level + 1 : 1;
+  const level = cap === 0 ? 0 : sameError ? previous.level + 1 : 1;
 
   const location = findErrorLocation(output);
   const source = location ? sourceAround(location) : null;
@@ -288,10 +312,15 @@ async function main() {
     return 1;
   }
 
-  saveLevel(errorKey, level);
-  say(answer.text);
+  // Locked never changes the saved level, so switching back to practice keeps your place.
+  if (level > 0) saveLevel(errorKey, level);
+  say(stripBold(answer.text));
   say('');
-  say(`[stuck] level ${level} of ${MAX_LEVEL} | code lines: ${answer.codeLines} | error: ${errorKey}`);
+  if (level === 0) {
+    say(`[stuck] mode: locked | explanation only | error: ${errorKey}`);
+  } else {
+    say(`[stuck] level ${level} of ${cap} | mode: ${policy.mode} | code lines: ${answer.codeLines} | error: ${errorKey}`);
+  }
   return 0;
 }
 

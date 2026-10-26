@@ -46,3 +46,18 @@ What I set out to build, what I asked the agent for, what I decided, and what I 
 **Tested with fake replies:** 12 fenced code lines rejected twice; unfenced code lines rejected; levels 1, 2, 3 then "last level"; MissingReturn restarts at level 1; Clean resets; NullPointer runtime error caught; typo command; 60 second build timeout; paths outside the repo ignored.
 
 **What the model got wrong:** not tested with the real model yet. Fill this in after the first real run.
+
+## 2026-10-25: Phase 2, policy modes
+
+**Asked for:** BUILD-PLAN Phase 2 (practice cap 3, graded cap 2, locked explain-only; cap enforced by the script before any model call; a command to show or change the mode), plus stripping `**` from the reply before printing. After the plan I added: locked footer is `[stuck] mode: locked | explanation only | error: ...`, a locked-mode test where both tries are rejected, the README says the policy file is a nudge and not security, and no new files beyond the plan.
+
+**Changed:** new `tools/policy.js` (modes, reading the file, fallback), `tools/stuck-mode.js` and `.claude/commands/stuck-mode.md` (show or set the mode); `tools/stuck.js` checks the cap, has a level 0 for locked, and `stripBold()`; README, CLAUDE.md and `.gitignore` (policy file is personal).
+
+**Decided**
+- Locked still calls the model once for the explanation, because only the model can write it. "No model call" applies to the hint cap (graded at level 2).
+- A missing policy file means practice. A broken file or unknown mode means locked, with a message.
+- Locked never changes `.stuck-level`, so switching back to practice keeps my place.
+- The policy file is a nudge, not security: I can edit it myself.
+- `**` is stripped only outside code fences, so code is never changed.
+
+**What the model got wrong:** nothing from the real model yet (all tests used fake replies). One thing the code cannot check: in locked mode it can reject code, but not "try this" advice in plain words. That depends on the prompt alone. My own agent mistake: while editing `.gitignore` I added the policy line twice and had to remove one.

@@ -54,6 +54,7 @@ with 12 lines of code, invalid JSON, a missing question mark) and only then try 
 - Directly in a terminal: `node tools/stuck.js`
 - Try other practice files by changing `command` in `.stuck-config.json`. `NullPointer.java` needs `javac -d out examples/NullPointer.java && java -cp out NullPointer`.
 - Start a fresh run by deleting `.stuck-level`.
+- Show or change the policy mode: `/stuck-mode` or `node tools/stuck-mode.js [practice|graded|locked]`. Locked prints `[stuck] mode: locked | explanation only | error: ...` instead of a level line.
 
 Fake-reply test, no usage spent (PowerShell). A 12-line code block at level 1 must be rejected, retried once, then fail with a clear message:
 

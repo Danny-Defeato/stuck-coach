@@ -1,5 +1,6 @@
 # personal data the scripts write
 .stuck-level
+.stuck-policy.json
 .stuck-fails.json
 LEARNED.md
 stuck-log.json
