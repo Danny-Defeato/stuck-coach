@@ -18,3 +18,16 @@ What I set out to build, what I asked the agent for, what I decided, and what I 
 **Planned phases:** core /stuck, policy modes, auto-offer hook, /fixed, duck mode. Stats dashboard only if time allows.
 
 **Dropped for now:** a web dashboard, support for languages other than Java, anything that edits my files.
+
+## 2026-10-25: CLAUDE.md safety rules
+
+**Asked for:** two of five suggested changes to CLAUDE.md (3 and 4); skipped 1, 2 and 5.
+
+**Changed**
+- Stack and structure: `claude -p` is always called with no tools and no file access, using `--tools ""` (checked against `claude -p --help`, not guessed).
+- Stack and structure: scripts must pass `--tools ""` as its own element in an args array (`spawn`/`execFile`), never inside one command string, because Windows quoting of an empty string is unreliable.
+- Safety: the `.stuck-config.json` command is one string from my own file, run through the shell, never written by the model.
+
+**Decided:** the empty-string quoting rule is written down now so the first script gets it right. Suggestions 1, 2 and 5 are not done.
+
+**What the model got wrong:** nothing yet. No scripts exist, so the flag is untested until the first `claude -p` call is written.

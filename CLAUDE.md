@@ -26,6 +26,8 @@ Keep this split true. If a change would blur it, stop and tell me.
 - Node.js, no npm packages, no build step. Scripts in `tools/`.
 - Slash commands in `.claude/commands/` (markdown files). Hooks in `.claude/settings.json`.
 - The model is called ONLY through `claude -p` (headless Claude Code) from the scripts. No API keys, nothing paid.
+- `claude -p` is always called with no tools and no file access: the scripts pass `--tools ""` (confirmed in `claude -p --help`: `Use "" to disable all tools`). The model only gets the text the script sends and returns text.
+- The scripts must pass `--tools ""` as its own element in an args array (`spawn` or `execFile`), never inside a single command string, because Windows quoting of an empty string is unreliable.
 - Must work on Windows (my computer), so no bash-only tricks: use Node for anything a hook or script runs.
 - Practice files in `examples/` (compile errors on purpose). The build command lives in `.stuck-config.json`, e.g. `{ "command": "javac -d out examples/TypeMismatch.java" }`.
 
@@ -54,6 +56,7 @@ with 12 lines of code, invalid JSON, a missing question mark) and only then try 
 ## Safety
 
 - Run only the command in `.stuck-config.json`. Never run commands the model suggests.
+- The `command` in `.stuck-config.json` is a single string from my own file, run through the shell, and never written by the model.
 - Never send anything but the build output and the few lines of source around the error to the model.
 - I should check my course's AI policy before using /stuck on graded work. `graded` mode exists for that.
 
