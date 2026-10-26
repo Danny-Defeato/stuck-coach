@@ -37,6 +37,7 @@ Keep this split true. If a change would blur it, stop and tell me.
 - `.stuck-level`: JSON `{ "errorKey": "...", "level": 0-3 }`.
 - `.stuck-policy.json`: `{ "mode": "practice" | "graded" | "locked" }` (practice max level 3, graded max level 2, locked = explain only).
 - `.stuck-last-error.json`: `{ "errorKey", "output", "date" }`, the last failing build, saved by `/stuck` for `/fixed`. A passing build does not delete it.
+- `stuck-duck-<hash>.json` (in the OS temp folder, not in the repo): the duck-mode conversation, `{ "errorKey", "turns": [{ "q", "a" }] }`. Deleted when the build passes; starts over when the error changes.
 - `.stuck-fails.json`: failure counter for the hook.
 - `LEARNED.md`: my own sentences from /fixed (append only, only MY words).
 - `stuck-log.json`: session log for stats.
@@ -56,6 +57,7 @@ with 12 lines of code, invalid JSON, a missing question mark) and only then try 
 - Try other practice files by changing `command` in `.stuck-config.json`. `NullPointer.java` needs `javac -d out examples/NullPointer.java && java -cp out NullPointer`.
 - Start a fresh run by deleting `.stuck-level`.
 - After fixing a bug: `node tools/fixed.js` in a terminal (terminal only, there is no slash command: it needs my typing). It asks for one sentence, checks it in code, asks the model only whether it matches, and appends MY sentence to `LEARNED.md`. Max 2 `claude -p` calls per run, retries included. Test it without usage: `$env:STUCK_FAKE_REPLY = '{"matches":true,"feedback":"Yes."}'`, run `node tools/stuck.js` on a failing build first, change the `.java` file, then `node tools/fixed.js`.
+- Duck mode (questions only, no hints, no code): `/stuck --duck` asks the next question. Answer with `/stuck --duck <your answer>`, or in a terminal `node tools/stuck.js --duck "<your answer>"` (quote it in PowerShell). One run = one question = at most 2 `claude -p` calls. After 6 questions it says to try plain `/stuck`. It is a switch on `/stuck`, not a policy mode: every policy mode allows it and it never changes `.stuck-level`. Test without usage: `$env:STUCK_FAKE_REPLY = "What does the compiler say it found?"`, then `node tools/stuck.js --duck`; a reply with a statement, code, or 4 questions must be rejected, retried once, then fail with a clear message.
 - Show or change the policy mode: `/stuck-mode` or `node tools/stuck-mode.js [practice|graded|locked]`. Locked prints `[stuck] mode: locked | explanation only | error: ...` instead of a level line.
 
 Fake-reply test, no usage spent (PowerShell). A 12-line code block at level 1 must be rejected, retried once, then fail with a clear message:
@@ -78,7 +80,7 @@ A good fake (`$env:STUCK_FAKE_REPLY = "Plain words, no code."`) prints the reply
 
 - Run only the command in `.stuck-config.json`. Never run commands the model suggests.
 - The `command` in `.stuck-config.json` is a single string from my own file, run through the shell, and never written by the model.
-- Never send anything but the build output and the few lines of source around the error to the model. The one exception is `/fixed`: it also sends `git diff HEAD -- "*.java"` (uncommitted `.java` changes only), capped at 80 lines / 4000 characters, plus my one-line sentence.
+- Never send anything but the build output and the few lines of source around the error to the model. The one exception is `/fixed`: it also sends `git diff HEAD -- "*.java"` (uncommitted `.java` changes only), capped at 80 lines / 4000 characters, plus my one-line sentence. Duck mode (`--duck`) also sends my earlier answers (300 characters each) and the model's earlier questions, at most 6 of each.
 - I should check my course's AI policy before using /stuck on graded work. `graded` mode exists for that.
 
 ## How to work with me

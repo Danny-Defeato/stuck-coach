@@ -5,6 +5,7 @@ const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 const { MODES, readPolicy } = require('./policy');
+const { duckTurn, clearDuck, cleanAnswer, MAX_ANSWER_CHARS } = require('./duck');
 
 // Files are found from the folder /stuck is run in, not from where this script lives.
 const ROOT = process.cwd();
@@ -88,9 +89,14 @@ function saveLevel(errorKey, level) {
   fs.writeFileSync(LEVEL_FILE, JSON.stringify({ errorKey, level }) + '\n');
 }
 
+// The same cap everywhere the error text is saved or sent to the model.
+function clipError(output) {
+  return output.split(/\r?\n/).slice(0, MAX_ERROR_LINES).join('\n').slice(0, MAX_ERROR_CHARS);
+}
+
 // /fixed reads this later. A passing build must not delete it: the error I just fixed is what /fixed needs.
 function saveLastError(errorKey, output) {
-  const clipped = output.split(/\r?\n/).slice(0, MAX_ERROR_LINES).join('\n').slice(0, MAX_ERROR_CHARS);
+  const clipped = clipError(output);
   const now = new Date();
   const two = (n) => String(n).padStart(2, '0');
   const date = `${now.getFullYear()}-${two(now.getMonth() + 1)}-${two(now.getDate())}`;
@@ -183,7 +189,7 @@ const LEVEL_RULES = {
 };
 
 function buildPrompt(errorText, source, level) {
-  const errorLines = errorText.split(/\r?\n/).slice(0, MAX_ERROR_LINES).join('\n').slice(0, MAX_ERROR_CHARS);
+  const errorLines = clipError(errorText);
   return [
     'You are a hint coach for a student whose Java code will not build or run.',
     'You have no tools and cannot see any other files, so use only the text below.',
@@ -270,7 +276,45 @@ async function askModel(prompt, level) {
   return { ok: false, message: `The model's reply broke the rules twice (${problem}) Nothing was shown and the level was not used up. Run /stuck again to retry.` };
 }
 
+const USAGE = 'Usage: node tools/stuck.js   or   node tools/stuck.js --duck [your answer]';
+
+// Reads piped input (used by the slash command so my answer never goes through the shell).
+function readStdin() {
+  return new Promise((resolve) => {
+    if (process.stdin.isTTY) return resolve(null);
+    let text = '';
+    const timer = setTimeout(() => resolve(null), 5000);
+    process.stdin.setEncoding('utf8');
+    process.stdin.on('data', (d) => { text += d; });
+    process.stdin.on('end', () => { clearTimeout(timer); resolve(text); });
+    process.stdin.on('error', () => { clearTimeout(timer); resolve(null); });
+  });
+}
+
+function answerFrom(raw) {
+  const { text, cut } = cleanAnswer(raw);
+  return { answer: text, answerCut: cut };
+}
+
+// No arguments = normal /stuck. --duck [words] = duck mode, the words are my answer.
+// --duck --stdin = duck mode, my answer comes from piped input. Anything else is refused,
+// so a typo like --Duck can never silently use up a hint level.
+async function parseArgs(args) {
+  if (args.length === 0) return { duck: false };
+  if (args[0] !== '--duck') return { error: `Unknown argument "${args[0]}". ${USAGE}` };
+  if (args[1] !== '--stdin') return { duck: true, ...answerFrom(args.slice(1).join(' ')) };
+  if (args.length > 2) return { error: `--stdin takes the answer from piped input, not from the command line. ${USAGE}` };
+  const piped = await readStdin();
+  if (piped === null) return { error: '--stdin needs piped input (the /stuck command sends it), and none arrived.' };
+  return { duck: true, ...answerFrom(piped) };
+}
+
 async function main() {
+  const parsed = await parseArgs(process.argv.slice(2));
+  if (parsed.error) {
+    say(parsed.error);
+    return 1;
+  }
   const config = loadConfig();
   if (!config) return 1;
 
@@ -289,6 +333,7 @@ async function main() {
   }
   if (build.code === 0) {
     saveLevel('', 0);
+    clearDuck(ROOT);
     say('Build passed');
     return 0;
   }
@@ -305,6 +350,15 @@ async function main() {
 
   const errorKey = makeErrorKey(output);
   saveLastError(errorKey, output);
+  const location = findErrorLocation(output);
+  const source = location ? sourceAround(location) : null;
+
+  // Duck mode: questions only, one turn per run. All policy modes allow it, and it never touches the hint level.
+  if (parsed.duck) {
+    if (parsed.answerCut) say(`(your answer was cut to ${MAX_ANSWER_CHARS} characters)`);
+    return duckTurn({ root: ROOT, errorKey, errorText: clipError(output), source, answer: parsed.answer, policy, callModel, countCodeLines, stripBold });
+  }
+
   const previous = readLevel();
   const sameError = previous.errorKey === errorKey;
   // The policy cap is checked here, before any model call. Locked has cap 0: no
@@ -315,8 +369,6 @@ async function main() {
   }
   const level = cap === 0 ? 0 : sameError ? previous.level + 1 : 1;
 
-  const location = findErrorLocation(output);
-  const source = location ? sourceAround(location) : null;
   const answer = await askModel(buildPrompt(output, source, level), level);
   if (!answer.ok) {
     say(answer.message);

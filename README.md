@@ -32,6 +32,14 @@ shows the real error, explains it, and gives a hint that gets more specific each
 - If it matches, the script appends the date, the error and **my** sentence to `LEARNED.md` (personal, in `.gitignore`). Nothing the model wrote is ever saved. If not, I see the feedback and get one more try.
 - It is terminal only because it needs me to type a line, and the slash command's shell has no keyboard input.
 
+**Duck mode (`/stuck --duck`)**
+- The model only asks questions about the real error, one at a time, building on my last answer. It never gives hints or code. Each run is one question; my answer goes in the next run: `/stuck --duck <my answer>` (terminal: `node tools/stuck.js --duck "my answer"`, in quotes for PowerShell).
+- It is a switch on `/stuck`, not a policy mode: policy modes cap how many hints I may get, and duck mode gives none, so practice, graded and locked all allow it. It never changes the hint level.
+- **Code checks every reply before it is printed:** under 300 characters; no code; every sentence ends in `?` (no statements, greetings or advice); at most 3 questions; none of the common leading patterns ("have you tried...", "why not...", "shouldn't it...", "you should change..."). A bad reply is retried once with the exact problem (2 model calls per run at most), then it gives up with a clear message. My answer is kept either way.
+- The conversation is in a temp file (outside the repo). It starts over when the error changes and is deleted when the build passes. After 6 questions it says to try plain `/stuck` (no model call).
+- In `/stuck --duck <answer>` my answer reaches the script through piped input, never through the shell, so quotes and symbols in it can't run anything.
+- **Limit:** code can prove a reply is only questions with no code. It cannot prove a question doesn't *hint* at the fix. The blocklist catches the common patterns and the prompt does the rest, so a leading question that slips through is the model's fault.
+
 If a hint reveals too much, that was the model. If the level, a check or a crash is wrong, that was my code.
 
 See `CLAUDE.md` for the rules and how to run and test it, and `LOG.md` for what I decided.
