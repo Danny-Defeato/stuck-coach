@@ -9,7 +9,10 @@ const ROOT = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 const FAILS_FILE = path.join(ROOT, '.stuck-fails.json');
 const CONFIG_FILE = path.join(ROOT, '.stuck-config.json');
 const OFFER_AT = 3;
-const OFFER = 'Build failed 3 times in a row. Type /stuck for a hint.';
+const RULE = '='.repeat(40);
+const OFFER = [RULE, 'STUCK? The build failed 3 times in a row.', 'Type /stuck for a hint.', RULE].join('\n');
+// For the model only: it relays this one line. The line is written here, in code.
+const CONTEXT = "The student's build has failed 3 times in a row. Tell them in one short sentence: 'Build failed 3 times in a row. Type /stuck for a hint.' Do not fix the code and do not give hints yourself.";
 
 // Claude Code writes one JSON object to stdin. Give up quietly if none arrives.
 function readStdin() {
@@ -69,7 +72,12 @@ async function main() {
   const offer = state.count >= OFFER_AT && !state.offered;
   if (offer) state.offered = true;
   saveFails(state);
-  if (offer) console.log(JSON.stringify({ systemMessage: OFFER }));
+  if (offer) {
+    console.log(JSON.stringify({
+      systemMessage: '\n' + OFFER,
+      hookSpecificOutput: { hookEventName: 'PostToolUseFailure', additionalContext: CONTEXT },
+    }));
+  }
 }
 
 main().then(() => process.exit(0), () => process.exit(0));

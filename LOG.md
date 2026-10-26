@@ -124,3 +124,29 @@ What I set out to build, what I asked the agent for, what I decided, and what I 
 **What the model got wrong:** the checks were only run against fake replies on purpose. Two things came out of testing my own code, not the model: (1) my first leading-question blocklist missed "Shouldn't findIndex return a String?" because it only matched "shouldn't it/you/this"; I widened it and re-tested. (2) The code **cannot** prove a question doesn't hint at the fix. It proves "only questions, no code, no statements" and blocks common leading patterns; a cleverly worded leading question can still get through, and then that is the model.
 
 **My own agent mistake:** the first run of the rejection tests silently used the real model. My test harness failed to patch the copy of the script (a shell variable was not exported) and the script kept going, so 9 real `claude -p` calls were made instead of fakes. I fixed the harness, made it refuse to run without scripted replies, and re-ran everything. Side result: all 9 real replies were valid questions and were printed (I did not count retries), so there is no evidence yet of the real model breaking the rules. A proper real-model session of 6 questions is still to do.
+
+## 2026-10-25: Hook offer message
+
+**Asked for:** change only the offer text in `tools/hook-build.js` to a short multi-line plain-ASCII message that stands out (a line of `=`, `STUCK? The build failed 3 times in a row.`, `Type /stuck for a hint.`, another line of `=`). Logic unchanged: once, only on the 3rd failure, fail open. Show the diff before saving, run the hook tests, no commit.
+
+**Changed:** `tools/hook-build.js` only: `OFFER` is now four lines joined with `\n` (a 40-character `=` rule above and below). Nothing else in the file moved.
+
+**Decided:** no emoji and no color codes so it prints the same on Windows. The old one-line wording in the Phase 3 entry above is superseded.
+
+**Tested:** a scratch harness piping JSON into the hook in temp folders: offer on the 3rd failure only, silent on the 4th and 5th; message is 4 lines, ASCII only, one JSON line; fail-open cases (empty and bad stdin, `null`, other tool, other command, no exit-code line, interrupt, missing and broken config, unwritable fails file) all exit 0 with no output; a pass resets and a new run of 3 offers again. 20 of 20 passed. Not tested: how a multi-line `systemMessage` looks in a real Claude Code session.
+
+**What the model got wrong:** nothing; the model is not involved in the hook. My own note: the scratchpad harness the request mentioned did not exist (the folder was empty), so I wrote a new one.
+
+## 2026-10-25: Hook also tells the model to relay the offer
+
+**Asked for:** two changes only in `tools/hook-build.js`: (1) start the `systemMessage` with a newline so the `====` box begins on its own line; (2) also output `hookSpecificOutput` with `hookEventName: "PostToolUseFailure"` and an `additionalContext` asking Claude to tell me, in one short sentence, "Build failed 3 times in a row. Type /stuck for a hint." Offer once and fail open stay the same. Check the hooks docs first, show the diff before saving, run the hook tests, no commit.
+
+**Changed:** `tools/hook-build.js` only: new `CONTEXT` constant; the offer now prints one JSON object `{ systemMessage: "\n" + box, hookSpecificOutput: { hookEventName, additionalContext } }`. The docs (checked by a helper agent) say `additionalContext` is supported for `PostToolUseFailure`, `systemMessage` is a top-level field, and exit 0 with a single JSON object on stdout is the intended form.
+
+**Decided:** the model only relays a line that the code wrote. The sentence it must say is fixed text in `CONTEXT`, and the text also tells it not to fix the code and not to give hints. The hook itself still makes no model call. The hint, if I want one, still only comes from me typing `/stuck`.
+
+**Tested:** a new scratch harness (the old one was gone), 27 of 27 passed: offer on the 3rd failure only, silent on the 4th and 5th; stdout is exactly one JSON line with only `systemMessage` and `hookSpecificOutput`; `systemMessage` starts with `\n` and the box is 4 lines of ASCII; `hookEventName` and `additionalContext` match the text exactly; a pass resets and 3 more failures offer again; a different error restarts the count; fail-open cases (empty and bad stdin, `null`, other tool, other command, no exit-code line, exit 0, interrupt, missing and broken config, unwritable fails file) exit 0 with no output.
+
+**Not tested:** how this looks in a live Claude Code session, and whether the model really says the sentence. The docs have no example that combines `systemMessage` and `hookSpecificOutput` in one object. And since the model only relays, it may word it a little differently or skip it; that would be the model, not my code.
+
+**What the model got wrong:** nothing found yet (not run with the real model).
