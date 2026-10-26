@@ -1,0 +1,298 @@
+// /stuck: run my build command, then ask the model for a hint at the right level.
+// The model only explains the error and writes the hint. Everything else is here.
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { spawn } = require('child_process');
+
+// Files are found from the folder /stuck is run in, not from where this script lives.
+const ROOT = process.cwd();
+const CONFIG_FILE = path.join(ROOT, '.stuck-config.json');
+const LEVEL_FILE = path.join(ROOT, '.stuck-level');
+const MAX_LEVEL = 3;
+const TIMEOUT_MS = 60000;
+const CONTEXT_BEFORE = 5;
+const CONTEXT_AFTER = 4;
+const MAX_ERROR_LINES = 40;
+const MAX_ERROR_CHARS = 3000;
+const SKIP_DIRS = new Set(['.git', 'node_modules', 'out']);
+
+const say = (text) => console.log(text);
+
+// Runs a process, never waits longer than timeoutMs, and always resolves.
+function run(file, args, { shell = false, input, cwd, timeoutMs = TIMEOUT_MS } = {}) {
+  return new Promise((resolve) => {
+    let stdout = '';
+    let stderr = '';
+    let finished = false;
+    const finish = (result) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      resolve({ stdout, stderr, ...result });
+    };
+    const child = spawn(file, args, {
+      shell,
+      cwd,
+      stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
+      windowsHide: true,
+    });
+    const timer = setTimeout(() => {
+      if (process.platform === 'win32') {
+        // /T kills the whole tree, so a java child can't keep the pipes open
+        spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
+      } else {
+        child.kill('SIGKILL');
+      }
+      finish({ timedOut: true });
+    }, timeoutMs);
+    child.stdout.on('data', (d) => { stdout += d; });
+    child.stderr.on('data', (d) => { stderr += d; });
+    child.on('error', (error) => finish({ error }));
+    child.on('close', (code) => finish({ code }));
+    if (input !== undefined) {
+      child.stdin.on('error', () => {});
+      child.stdin.end(input);
+    }
+  });
+}
+
+function loadConfig() {
+  let config;
+  try {
+    config = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
+  } catch (e) {
+    say('Could not read .stuck-config.json. It should look like { "command": "javac -d out examples/TypeMismatch.java" }.');
+    return null;
+  }
+  if (!config || typeof config.command !== 'string' || !config.command.trim()) {
+    say('.stuck-config.json needs a "command" that is a non-empty string.');
+    return null;
+  }
+  return config;
+}
+
+function readLevel() {
+  try {
+    const saved = JSON.parse(fs.readFileSync(LEVEL_FILE, 'utf8'));
+    if (typeof saved.errorKey === 'string' && Number.isInteger(saved.level)) return saved;
+  } catch (e) {
+    // missing or broken file: start over
+  }
+  return { errorKey: '', level: 0 };
+}
+
+function saveLevel(errorKey, level) {
+  fs.writeFileSync(LEVEL_FILE, JSON.stringify({ errorKey, level }) + '\n');
+}
+
+// First error line with the file path and line number removed, so the same
+// mistake on a different line still counts as the same error.
+function makeErrorKey(output) {
+  const lines = output.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const first = lines.find((l) => /error:|Exception|Error\b/.test(l)) || lines[0] || 'unknown error';
+  return first
+    .replace(/^.*?\.java:\d+:\s*/, '')
+    .replace(/\([\w$]+\.java:\d+\)/g, '')
+    .replace(/^error:\s*/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// The path comes from build output, so it is never trusted: the real path
+// (after symlinks) must be inside the working folder.
+function isInsideRepo(file) {
+  try {
+    const rel = path.relative(fs.realpathSync(ROOT), fs.realpathSync(file));
+    return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
+  } catch (e) {
+    return false;
+  }
+}
+
+function findByName(dir, name, depth = 0) {
+  if (depth > 4) return null;
+  let entries;
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch (e) {
+    return null;
+  }
+  for (const entry of entries) {
+    if (entry.isFile() && entry.name === name) return path.join(dir, name);
+  }
+  for (const entry of entries) {
+    if (entry.isDirectory() && !SKIP_DIRS.has(entry.name)) {
+      const found = findByName(path.join(dir, entry.name), name, depth + 1);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+function resolveInsideRepo(file) {
+  const direct = path.resolve(ROOT, file);
+  if (fs.existsSync(direct)) return isInsideRepo(direct) ? direct : null;
+  // stack traces only give the file name, so look for it in the repo
+  if (path.basename(file) !== file) return null;
+  const found = findByName(ROOT, file);
+  return found && isInsideRepo(found) ? found : null;
+}
+
+// javac prints "path.java:13: error: ...", a stack trace prints "(Name.java:9)".
+// The first mentioned .java file that is really inside the repo wins.
+function findErrorLocation(output) {
+  const pattern = /((?:[A-Za-z]:)?[^\s():]+\.java):(\d+):|\(([\w$]+\.java):(\d+)\)/g;
+  for (const m of output.matchAll(pattern)) {
+    const file = resolveInsideRepo(m[1] || m[3]);
+    if (file) return { file, line: Number(m[2] || m[4]) };
+  }
+  return null;
+}
+
+function sourceAround({ file, line }) {
+  let lines;
+  try {
+    lines = fs.readFileSync(file, 'utf8').split(/\r?\n/);
+  } catch (e) {
+    return null;
+  }
+  const start = Math.max(1, line - CONTEXT_BEFORE);
+  const end = Math.min(lines.length, line + CONTEXT_AFTER);
+  const shown = [];
+  for (let n = start; n <= end; n++) shown.push(`${n}: ${lines[n - 1]}`);
+  return `${path.basename(file)}\n${shown.join('\n')}`;
+}
+
+const LEVEL_RULES = {
+  1: 'Level 1 (a nudge). Explain only what the error message literally says, in plain words. Do NOT say what is wrong with the code or why it happens. Then give one nudge about where to look. No code.',
+  2: 'Level 2 (the cause). Explain what the error means and why it happens in this code, in plain words. Do NOT show the fix. No code.',
+  3: 'Level 3 (the fix). Explain the error, then give the specific fix. At most 3 lines of code.',
+};
+
+function buildPrompt(errorText, source, level) {
+  const errorLines = errorText.split(/\r?\n/).slice(0, MAX_ERROR_LINES).join('\n').slice(0, MAX_ERROR_CHARS);
+  return [
+    'You are a hint coach for a student whose Java code will not build or run.',
+    'You have no tools and cannot see any other files, so use only the text below.',
+    'Write a short plain-words explanation of the real error, then a hint at the level below.',
+    LEVEL_RULES[level],
+    'Put any code inside ``` fences. Never put code outside fences.',
+    '',
+    'REAL ERROR OUTPUT:',
+    errorLines,
+    '',
+    source ? `SOURCE AROUND THE ERROR:\n${source}` : '(no source lines available)',
+  ].join('\n');
+}
+
+// Returns { text } or { failure }. STUCK_FAKE_REPLY replaces the model, so no usage is spent.
+async function callModel(prompt) {
+  if (process.env.STUCK_FAKE_REPLY) return { text: process.env.STUCK_FAKE_REPLY };
+  // --tools "" is its own array element: no tools, no file access.
+  // Running from the temp folder keeps this project's CLAUDE.md out of the model's context.
+  const r = await run('claude', ['-p', '--tools', ''], { input: prompt, cwd: os.tmpdir() });
+  if (r.error && r.error.code === 'ENOENT') return { failure: 'Could not find the `claude` command. Is Claude Code installed and on your PATH?' };
+  if (r.error) return { failure: `Could not run claude: ${r.error.message}` };
+  if (r.timedOut) return { failure: 'The model did not answer within 60 seconds. Stopped. Try /stuck again.' };
+  if (r.code !== 0) return { failure: `claude failed (exit code ${r.code}): ${(r.stderr || r.stdout).trim().split(/\r?\n/)[0]}` };
+  return { text: r.stdout };
+}
+
+// Counts code lines: everything inside ``` fences, plus unfenced lines that
+// look like code (end in ; { or }, or are indented 4+ spaces / a tab).
+function countCodeLines(text) {
+  let inFence = false;
+  let count = 0;
+  for (const line of text.split(/\r?\n/)) {
+    if (line.trim().startsWith('```')) {
+      inFence = !inFence;
+      continue;
+    }
+    if (!line.trim()) continue;
+    if (inFence || /[;{}]$/.test(line.trimEnd()) || /^( {4,}|\t)/.test(line)) count++;
+  }
+  return count;
+}
+
+function checkReply(text, level) {
+  if (!text.trim()) return { ok: false, problem: 'the reply was empty.' };
+  const codeLines = countCodeLines(text);
+  const allowed = level === MAX_LEVEL ? 3 : 0;
+  if (codeLines > allowed) {
+    const rule = allowed === 0 ? `Level ${level} must have no code at all` : `Level ${level} may have at most ${allowed} lines of code`;
+    return { ok: false, problem: `the reply had ${codeLines} lines of code. ${rule}.`, codeLines };
+  }
+  return { ok: true, codeLines };
+}
+
+// First try plus at most one retry that tells the model exactly what was wrong.
+async function askModel(prompt, level) {
+  let problem = '';
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const text = attempt === 1
+      ? prompt
+      : `${prompt}\n\nYour previous reply was rejected by a code check: ${problem} Write the whole reply again and fix exactly that.`;
+    const reply = await callModel(text);
+    if (reply.failure) return { ok: false, message: reply.failure };
+    const check = checkReply(reply.text, level);
+    if (check.ok) return { ok: true, text: reply.text.trim(), codeLines: check.codeLines };
+    problem = check.problem;
+  }
+  return { ok: false, message: `The model's reply broke the rules twice (${problem}) Nothing was shown and the level was not used up. Run /stuck again to retry.` };
+}
+
+async function main() {
+  const config = loadConfig();
+  if (!config) return 1;
+
+  const build = await run(config.command, [], { shell: true });
+  if (build.timedOut) {
+    say(`The build command did not finish in ${TIMEOUT_MS / 1000} seconds, so I stopped it. Is the program waiting for input?`);
+    return 1;
+  }
+  if (build.error) {
+    say(`Could not run the build command: ${build.error.message}`);
+    return 1;
+  }
+  if (build.code === 0) {
+    saveLevel('', 0);
+    say('Build passed');
+    return 0;
+  }
+  const output = `${build.stderr}\n${build.stdout}`.trim();
+  const notFound = /is not recognized as an internal or external command|command not found/i;
+  if (build.code === 9009 || build.code === 127 || notFound.test(output)) {
+    say(`The build command could not start (exit code ${build.code}). Check for a typo in .stuck-config.json:\n${config.command}`);
+    return 1;
+  }
+  if (!output) {
+    say(`The build command failed (exit code ${build.code}) but printed nothing, so there is no error to explain.`);
+    return 1;
+  }
+
+  const errorKey = makeErrorKey(output);
+  const previous = readLevel();
+  const sameError = previous.errorKey === errorKey;
+  if (sameError && previous.level >= MAX_LEVEL) {
+    say(`That was the last level (${MAX_LEVEL}). No more hints for this error. Change the code or ask your instructor.`);
+    return 0;
+  }
+  const level = sameError ? previous.level + 1 : 1;
+
+  const location = findErrorLocation(output);
+  const source = location ? sourceAround(location) : null;
+  const answer = await askModel(buildPrompt(output, source, level), level);
+  if (!answer.ok) {
+    say(answer.message);
+    return 1;
+  }
+
+  saveLevel(errorKey, level);
+  say(answer.text);
+  say('');
+  say(`[stuck] level ${level} of ${MAX_LEVEL} | code lines: ${answer.codeLines} | error: ${errorKey}`);
+  return 0;
+}
+
+main().then((code) => { process.exitCode = code; });

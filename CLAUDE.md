@@ -48,6 +48,24 @@ Every script that calls `claude -p` must also accept an environment variable
 reply instead of calling Claude. I test the code checks with fake replies first (a reply
 with 12 lines of code, invalid JSON, a missing question mark) and only then try the real model.
 
+## Running it
+
+- In Claude Code: `/stuck` (runs `node tools/stuck.js`, shows its output as printed).
+- Directly in a terminal: `node tools/stuck.js`
+- Try other practice files by changing `command` in `.stuck-config.json`. `NullPointer.java` needs `javac -d out examples/NullPointer.java && java -cp out NullPointer`.
+- Start a fresh run by deleting `.stuck-level`.
+
+Fake-reply test, no usage spent (PowerShell). A 12-line code block at level 1 must be rejected, retried once, then fail with a clear message:
+
+```powershell
+Remove-Item .stuck-level -ErrorAction SilentlyContinue
+$env:STUCK_FAKE_REPLY = "``````java`n" + ((1..12 | % { "int x$_ = $_;" }) -join "`n") + "`n``````"
+node tools/stuck.js
+Remove-Item Env:STUCK_FAKE_REPLY
+```
+
+A good fake (`$env:STUCK_FAKE_REPLY = "Plain words, no code."`) prints the reply and a `[stuck] level N of 3` line. Unfenced lines that end in `;` `{` `}` or are indented 4+ spaces count as code too.
+
 ## Limits on model calls
 
 - At most 2 `claude -p` calls per command (the first try plus one retry), 60 second timeout.

@@ -31,3 +31,18 @@ What I set out to build, what I asked the agent for, what I decided, and what I 
 **Decided:** the empty-string quoting rule is written down now so the first script gets it right. Suggestions 1, 2 and 5 are not done.
 
 **What the model got wrong:** nothing yet. No scripts exist, so the flag is untested until the first `claude -p` call is written.
+
+## 2026-10-25: Phase 1, core /stuck
+
+**Asked for:** BUILD-PLAN Phase 1, plus: `--tools ""` as its own args element, `STUCK_FAKE_REPLY`, run commands and fake test in CLAUDE.md. After the plan I added: count unfenced code-looking lines, tell the model to fence code and (level 1) only restate what the error literally says, only read source files inside the repo, 60 second build timeout, `allowed-tools` in the command file.
+
+**Changed:** new `tools/stuck.js` and `.claude/commands/stuck.md`; README has the model/script split; CLAUDE.md has "Running it".
+
+**Decided**
+- The level is saved only after a good reply, so a model failure does not use up a hint.
+- `claude -p` runs from the temp folder so this project's CLAUDE.md is not sent to the model.
+- A build command that cannot start (typo) stops with a message instead of being sent to the model.
+
+**Tested with fake replies:** 12 fenced code lines rejected twice; unfenced code lines rejected; levels 1, 2, 3 then "last level"; MissingReturn restarts at level 1; Clean resets; NullPointer runtime error caught; typo command; 60 second build timeout; paths outside the repo ignored.
+
+**What the model got wrong:** not tested with the real model yet. Fill this in after the first real run.
