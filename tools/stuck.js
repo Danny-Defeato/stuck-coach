@@ -6,6 +6,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 const { MODES, readPolicy } = require('./policy');
 const { duckTurn, clearDuck, cleanAnswer, MAX_ANSWER_CHARS } = require('./duck');
+const { makeErrorKey } = require('./errorkey');
 
 // Files are found from the folder /stuck is run in, not from where this script lives.
 const ROOT = process.cwd();
@@ -101,19 +102,6 @@ function saveLastError(errorKey, output) {
   const two = (n) => String(n).padStart(2, '0');
   const date = `${now.getFullYear()}-${two(now.getMonth() + 1)}-${two(now.getDate())}`;
   fs.writeFileSync(LAST_ERROR_FILE, JSON.stringify({ errorKey, output: clipped, date }) + '\n');
-}
-
-// First error line with the file path and line number removed, so the same
-// mistake on a different line still counts as the same error.
-function makeErrorKey(output) {
-  const lines = output.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-  const first = lines.find((l) => /error:|Exception|Error\b/.test(l)) || lines[0] || 'unknown error';
-  return first
-    .replace(/^.*?\.java:\d+:\s*/, '')
-    .replace(/\([\w$]+\.java:\d+\)/g, '')
-    .replace(/^error:\s*/, '')
-    .replace(/\s+/g, ' ')
-    .trim();
 }
 
 // The path comes from build output, so it is never trusted: the real path

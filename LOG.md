@@ -62,6 +62,32 @@ What I set out to build, what I asked the agent for, what I decided, and what I 
 
 **What the model got wrong:** nothing from the real model yet (all tests used fake replies). One thing the code cannot check: in locked mode it can reject code, but not "try this" advice in plain words. That depends on the prompt alone. My own agent mistake: while editing `.gitignore` I added the policy line twice and had to remove one.
 
+## 2026-10-25: Phase 3, auto-offer hook
+
+**Asked for:** BUILD-PLAN Phase 3: a hook in `.claude/settings.json` that runs `node tools/hook-build.js` after my build command, counts consecutive failures of the same error in `.stuck-fails.json`, and prints "Build failed 3 times in a row. Type /stuck for a hint." No model call. Hard rules I added: never run the build, fail open (any error means exit 0 and no output), react only to the build command in `.stuck-config.json`, offer at most once per error, fast, show the exact diff and how to turn it off, say how the input arrives on Windows, test without a real Claude Code session. I asked for the plan first and no files until I approved it. After the plan I asked for a bracket fix in the settings diff, a check that the Phase 1 fake tests still pass after moving `makeErrorKey`, and the three limits below in README and LOG.
+
+**Changed:** new `tools/hook-build.js` and `tools/errorkey.js`; `tools/stuck.js` now requires `makeErrorKey` from `errorkey.js` (same code, moved); new `.claude/settings.json`; `CLAUDE.md` and `README.md` updated.
+
+**Decided**
+- **Two hook events, one script.** `PostToolUseFailure` fires when the command exits non-zero and carries `error` = `"Exit code N\n<output>"`; `PostToolUse` fires only on success. The count needs the first, the reset on a pass needs the second (silent).
+- **Input arrives on stdin** as one JSON object (not argv or env). There is no numeric exit-code field on failure, so code reads the first line (`Exit code N`).
+- **Offer shown with `systemMessage`** (JSON on stdout, exit 0), because plain stdout on exit 0 does not reach the screen for these events. **Not yet confirmed in a real session** (see below).
+- `makeErrorKey` moved to its own file so `/stuck` and the hook can never make different keys for the same error.
+- Offered once per error: the saved `offered` flag. A different error or a pass clears it.
+- Message text is the Phase 3 wording, not the shorter example.
+- Turn off: delete the two `hooks` entries, or add `"disableAllHooks": true`.
+
+**Limits (known, on purpose)**
+- The hook only sees builds Claude Code runs through its Bash/PowerShell tool, not builds I run in my own terminal, and not the build `/stuck` runs inside its script.
+- "3 in a row" counts only failures the hook saw.
+- The hook path `node tools/hook-build.js` is relative. If Claude's shell leaves the repo folder, the hook cannot find the file and Claude Code shows a hook error, so it is not fully fail-open in that case.
+
+**Tested without Claude Code** (JSON piped into the script, temp project folder): offer on the 3rd failure only, then silent on the 4th and 5th; a different error restarts at 1; a pass resets and a new run of 3 offers again; other commands (`node tools/stuck.js`, `ls`) leave the file untouched; empty stdin, bad JSON, `[]`, `null`, unknown tool or event, `Exit code 0`, interrupt, non-string error, bad or missing config, unwritable and broken fails file all exit 0 with no output; each run about 70-100 ms; the saved key matches `makeErrorKey`. Phase 1 fake tests after moving `makeErrorKey`: 12 code lines rejected twice, levels 1/2/3 then the last-level message, MissingReturn restarts at 1, Clean resets, NullPointer runtime error caught, typo command, level 3 allows 3 code lines.
+
+**Not tested yet:** a real Claude Code session. Still to check by hand: `/hooks` lists both entries, the offer line really shows on the 3rd failure, and the relative path works.
+
+**What the model got wrong:** nothing from the real model, it is not involved in the hook. My own agent mistakes: (1) one placeholder test in my first Phase 1 run did nothing, so I re-ran it properly. (2) You said a `]` was missing in the settings diff; I compared the plan's diff and found the brackets balanced, so I wrote the file with the same structure and checked it with `JSON.parse` (it printed `valid`).
+
 ## 2026-10-25: Phase 4, /fixed
 
 **Asked for:** BUILD-PLAN Phase 4 (`node tools/fixed.js`: my own sentence, code checks it, the model only says whether it matches, only MY sentence goes to `LEARNED.md`). I asked for the plan first and no files until I approved it, and for the model's part to be as small as possible. After the plan I decided: save the last error in `.stuck-last-error.json` (a passing build keeps it), send only a capped source-only diff (80 lines / 4000 characters) and update the Safety line, a stoplist for the word check counting only the error message and the changed `+`/`-` lines, one shared budget of 2 model calls, terminal only, and `git diff HEAD` so staged changes count.

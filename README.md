@@ -40,6 +40,16 @@ shows the real error, explains it, and gives a hint that gets more specific each
 - In `/stuck --duck <answer>` my answer reaches the script through piped input, never through the shell, so quotes and symbols in it can't run anything.
 - **Limit:** code can prove a reply is only questions with no code. It cannot prove a question doesn't *hint* at the fix. The blocklist catches the common patterns and the prompt does the rest, so a leading question that slips through is the model's fault.
 
+**Auto-offer hook (`tools/hook-build.js`, set up in `.claude/settings.json`)**
+- This part is 100% code, the model is never involved. A hook is a command Claude Code itself runs at a fixed moment, every time. An instruction in `CLAUDE.md` is only text the model reads and may or may not follow.
+- After my build command runs through Claude Code, the hook gets the result on stdin as JSON. It counts consecutive failures of the same error in `.stuck-fails.json` and prints `Build failed 3 times in a row. Type /stuck for a hint.` once, on the third. A different error or a passing build resets the count. It never runs the build and never calls the model.
+- It fails open: bad input or any error means exit 0 and no output. It only reacts to the exact command in `.stuck-config.json`.
+- **Limits:**
+  - The hook only sees builds Claude Code runs through its Bash/PowerShell tool, not builds I run in my own terminal, and not the build that `/stuck` runs inside its script.
+  - "3 in a row" counts only failures the hook saw.
+  - The path `node tools/hook-build.js` is relative. If Claude's shell leaves the repo folder, the hook cannot find the file and shows a hook error, so it is not fully fail-open in that case.
+- Turn it off: delete the two `hooks` entries in `.claude/settings.json`, or add `"disableAllHooks": true` there.
+
 If a hint reveals too much, that was the model. If the level, a check or a crash is wrong, that was my code.
 
 See `CLAUDE.md` for the rules and how to run and test it, and `LOG.md` for what I decided.
